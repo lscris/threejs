@@ -1,0 +1,265 @@
+<html>
+  <head>
+    <title>A Threejs Scene</title>
+    <style>
+        body {
+      /* set margin to 0 and overflow to hidden, to go fullscreen */
+      margin: 0;
+      overflow: hidden;
+      /*background-color: #264A60;  /*BLUE 70*/
+      background: #cefffa;
+      background: -moz-linear-gradient(top,  #cefffa 0%, #f2b51d 89%);
+      background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#cefffa), color-stop(89%,#f2b51d));
+      background: -webkit-linear-gradient(top,  #cefffa 0%,#f2b51d 89%);
+      background: -o-linear-gradient(top,  #cefffa 0%,#f2b51d 89%);
+      background: -ms-linear-gradient(top,  #cefffa 0%,#f2b51d 89%);
+      background: linear-gradient(to bottom,  #cefffa 0%,#f2b51d 89%);
+      filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#cefffa', endColorstr='#f2b51d',GradientType=0 );
+      }
+    </style>
+  </head>
+  <body>
+    <script type="text/javascript" src="js/three.min.js"></script>
+    <script type="text/javascript" src="js/tween.min.js"></script>
+    <script type="text/javascript" src="js/ParticleEngine.js"></script>
+    <script type="text/javascript" src="js/stats.min.js"></script>
+    <script type="text/javascript" src="js/FirstPersonControls.js"></script>
+    <script type="text/javascript" src="js/JSONLoader.js"></script>
+    <script type="text/javascript" src="js/OculusRiftEffect.js"></script>
+    <script type="text/javascript" src="js/PathCamera.js"></script>
+    <script type="text/javascript" src="js/DK2Controls.js"></script>
+    <script src="js/KeyboardState.js"></script>
+    <script type="text/javascript">
+
+      //Global variables
+
+      var SUN_LIGHT = 0xffa573;
+      var RAIN_LIGHT = 0x5596E6;
+
+      var container;
+
+      var textContainer;
+
+      var scene,renderer,controls;
+      var camera,pathCamera;
+      var path;
+      var step = 0;         // camera step
+      var scene_mesh;
+      var sphere_material,sphere_geometry;
+      var light;
+      var ambientLightColor = SUN_LIGHT;
+
+      var loader;
+      var oculusRenderer;
+      var clock = new THREE.Clock();
+      var delta;
+
+
+      var keyboard = new KeyboardState();
+
+
+      var pathEnabled = true; //true for runner camera
+      var oculusEnabled = false;
+
+      // is it raining?
+      var isRaining = false;
+      var rain;
+
+      var cube;
+      var isTweening = false;
+
+      function init() {
+
+      container = document.createElement('div');
+      document.body.appendChild(container);
+
+      // create a scene, that will hold all our elements such as objects, cameras and lights.
+
+      /*************************
+                SCENE
+      *************************/
+      scene = new THREE.Scene();
+
+
+      //add track
+var sampleClosedSpline = new THREE.ClosedSplineCurve3( [
+new THREE.Vector3(-0.33,0.33,2.14),
+new THREE.Vector3(-0.58,0.68,-2.94),
+new THREE.Vector3(-4.7,0.53,-5.09),
+new THREE.Vector3(-8.29,0.09,-3.79),
+new THREE.Vector3(-9.33,0.69,-2.15),
+new THREE.Vector3(-8.0,0.63,1.31),
+new THREE.Vector3(-7.21,0.41,4.3),
+new THREE.Vector3(-0.01,0.13,7.23),
+new THREE.Vector3(-0.1,0.44,4.61)
+] );
+      
+      pathCamera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.01, 1000 );
+      path = new PathCamera(pathCamera,sampleClosedSpline);
+
+     
+
+      // create a camera, which defines where we're looking at.
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 30);
+
+
+      //  //add the path geometry to test
+      // var curveGeometry = new THREE.TubeGeometry(sampleClosedSpline, 200, 10, 1, true); //true == closed curve
+      // var pathMesh = new THREE.Mesh(curveGeometry,
+      //           new THREE.MeshLambertMaterial( { color : 0xff0000 } ));
+      // scene.add(pathMesh);
+
+      //add particle system for raining
+      rain = new ParticleEngine();
+      if(isRaining)
+        rain.start();
+
+
+      // create a render, sets the background color and the size
+      renderer = new THREE.WebGLRenderer({antialias:true,alpha: true});
+      renderer.setClearColor( 0xa7fae6, 1 );
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMapEnabled = true;
+      //shadow antialiasing
+      renderer.shadowMapType = THREE.PCFSoftShadowMap;
+
+      // Here is the oculusRenderer for the Oculus Rift
+        // worldScale 100 means that 100 Units == 1m
+      oculusRenderer = new THREE.OculusRiftEffect( renderer, {worldScale: 100} );
+      oculusRenderer.setSize( window.innerWidth, window.innerHeight );
+
+      //Create a light
+      light = new THREE.SpotLight(0xffa573);
+      light.position.set(0,10,50);
+      light.shadowCameraNear = 50;
+      light.shadowMapWidth = light.shadowMapHeight = 2048;
+      light.shadowCameraFar = 5000;
+      light.castShadow = true;
+      scene.add(light);
+
+      // add fog
+      scene.fog = new THREE.FogExp2( 0xFFFFFF, 0.1);
+
+      if(isRaining)
+        ambientLightColor = RAIN_LIGHT;
+      else
+        ambientLightColor = SUN_LIGHT;
+
+      var ambientLight = new THREE.AmbientLight( ambientLightColor );
+      scene.add(ambientLight );
+
+      // load scene model
+      loader = new THREE.JSONLoader();
+      loadScene();
+
+      // position and point the default camera to the center of the scene
+      camera.position.x = -5.95;
+      camera.position.y = 1;
+      camera.position.z = 5.78;
+      // camera.position = new THREE.Vector3(-5.95,0.46,-5.78);
+
+      // Oculus DK2 controls
+
+      if(oculusEnabled == true)
+      controls = new THREE.DK2Controls(pathEnabled === true? pathCamera:camera);
+      else{
+        controls = new THREE.FirstPersonControls( pathEnabled === true? pathCamera:camera);
+        controls.movementSpeed = 2;
+        controls.lookSpeed = 0.04;
+        controls.lookVertical = false;  
+      }
+
+      // // add fps stats
+      addStats();
+
+      // add the output of the renderer to the html element
+      container.appendChild(renderer.domElement);
+
+      // call the render function, after the first render, interval is determined
+      // by requestAnimationFrame
+      render(0.016);
+    }
+
+    
+      function render(dt) {
+
+        // var moveDistance = 5 * clock.getDelta(); 
+        keyboard.update();
+
+
+        if ( keyboard.pressed("up") ){
+          path.takeStep(step,step+2, 400);
+          step += 2;
+        }
+          
+        if ( keyboard.pressed("down") ){
+          if(step>0){
+            path.takeStep(step,step-2, 400);
+            step -= 2; 
+          }
+        }
+
+        delta = clock.getDelta();
+
+        if(!pathEnabled && !oculusEnabled)
+          controls.update( delta ); 
+
+        renderer.autoClear = false;
+
+        TWEEN.update();
+
+        // update rain
+        rain.update(dt);
+
+        //oculus rift
+        if(oculusEnabled == true)
+          oculusRenderer.render( scene, pathEnabled === true? pathCamera:camera);
+        else
+          renderer.render(scene,pathEnabled === true? pathCamera:camera);
+        requestAnimationFrame( render ); 
+        stats.update();
+        
+      }
+
+      function addStats(){
+        stats = new Stats();
+        stats.setMode(0);
+        stats.domElement.style.position = 'absolute';
+        stats.domElement.style.left = '0px';
+        stats.domElement.style.top = '0px';
+        container.appendChild(stats.domElement);
+      }
+
+      //load the scene
+      function loadScene(){
+          loader.load("./models/scene2.js",
+          function(model,materials){
+            scene_mesh = new THREE.Mesh(model,new THREE.MeshFaceMaterial( materials ));
+            scene_mesh.name = 'scene';
+            scene_mesh.receiveShadow = true;
+            scene_mesh.castShadow = true;
+            scene.add(scene_mesh);
+          });
+      }
+            /**
+       * Function handles the resize event. This make sure the camera and the renderer
+       * are updated at the correct moment.
+       */
+      function handleResize() {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          oculusRenderer.setSize( window.innerWidth, window.innerHeight );
+          renderer.setSize(window.innerWidth, window.innerHeight);
+      }     
+
+      window.onload = init;
+      // calls the handleResize function when the window is resized
+      window.addEventListener('resize', handleResize, false);
+
+    </script>
+  </body>
+</html>
+
+
+
+
